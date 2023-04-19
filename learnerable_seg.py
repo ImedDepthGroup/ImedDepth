@@ -183,11 +183,19 @@ DINO_CFG = {
               "block_chunks": 0,
               "img_size": 518,
               "init_values": 1e-5
+    },
+    "vit_g": {
+        "patch_size": 14,
+        "drop_path_rate": 0.4,
+        #   "ffn_layer": "swiglufused",
+        "block_chunks": 0,
+        "img_size": 518,
+        "init_values": 1e-5
     }
 }
 
 class PromptDiNo(nn.Module):
-    def __init__(self, name, checkpoint=None, reduction=4, num_classes=12) -> None:
+    def __init__(self, name, checkpoint=None, reduction=4, num_classes=1) -> None:
         super().__init__()
         cfg = DINO_CFG[name]
         self.encoder = DINO_VIT_RESITRY[name](**cfg)

@@ -25,10 +25,10 @@ parser.add_argument("--checkpoint", type=str, required=True,
                     help="path to the checkpoint of sam")
 parser.add_argument("--model_name", default="default", type=str,
                     help="name of the sam model, default is vit_h",
-                    choices=["default", "vit_b", "vit_l", "vit_h"])
+                    choices=["default", "vit_b", "vit_l", "vit_h", 'vit_g'])
 parser.add_argument("--save_path", type=str, default="./ckpt_prompt",
                     help="save the weights of the model")
-parser.add_argument("--num_classes", type=int, default=12)
+parser.add_argument("--num_classes", type=int, default=1)
 parser.add_argument("--mix_precision", action="store_true", default=False,
                     help="whether use mix precison training")
 parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
@@ -59,7 +59,7 @@ class SegDataset:
     def __init__(self, img_paths, mask_paths, 
                  mask_divide=False, divide_value=255,
                  pixel_mean=[0.5]*3, pixel_std=[0.5]*3,
-                 img_size=1024) -> None:
+                 img_size=518) -> None:
         self.img_paths = img_paths
         self.mask_paths = mask_paths
         self.length = len(img_paths)
@@ -131,6 +131,7 @@ def main(args):
         img_paths = [file for file in glob.glob(os.path.join(img_path, "*.*")) if regex.match(file)]
         print("train with {} imgs".format(len(img_paths)))
         mask_paths = [os.path.join(mask_path, os.path.basename(file)) for file in img_paths]
+        # mask_paths = [os.path.join(mask_path, 'depth'+os.path.basename(file)[6:]) for file in img_paths]
     else:
         bs = 1
         img_paths = [img_path]
@@ -151,7 +152,8 @@ def main(args):
         optim = opt.AdamW([{"params":model.parameters(), "initia_lr": lr}], lr=lr, weight_decay=weight_decay)
     elif optimizer == "sgd":
         optim = opt.SGD([{"params":model.parameters(), "initia_lr": lr}], lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=True)
-    loss_func = nn.CrossEntropyLoss()
+    # loss_func = nn.CrossEntropyLoss()
+    loss_func = nn.L1Loss()
     scheduler = PolyLRScheduler(optim, num_images=len(img_paths), batch_size=bs, epochs=epochs)
     metric = Metric(num_classes=num_classes)
     best_iou = 0.
