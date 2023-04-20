@@ -209,8 +209,8 @@ class PromptDiNo(nn.Module):
         # self.encoder.blocks = nn.Sequential(*blks)
         self.patch_size = cfg["patch_size"]
         self.img_size = cfg['img_size']
-        self.fc_cls = nn.Linear(1024, num_classes)
-        self.out_conv = nn.Conv2d(dim, num_classes, 1, 1, 0) 
+        # self.fc_cls = nn.Linear(1024, num_classes)
+        self.out_conv = nn.Conv2d(dim, num_classes, 1, 1, 0)
 
     
     def reset_backbone(self, chekpoint=None):
@@ -220,16 +220,31 @@ class PromptDiNo(nn.Module):
         self.encoder.load_state_dict(state)
     
     def forward(self, x):
+        # # 邱老师实现
+        # featrues = self.encoder.forward_features(x)
+        # feature = featrues["x_norm_patchtokens"]
+        # cls_token = featrues["x_norm_clstoken"]
+        #
+        # _, _, dim = feature.shape
+        # feature = feature.reshape(-1, self.img_size // self.patch_size, self.img_size // self.patch_size, dim).permute(0, 3, 1, 2)
+        # cls = self.fc_cls(cls_token)
+        # out = self.out_conv(feature) * cls.unsqueeze(-1).unsqueeze(-1)
+        # out = torch.nn.functional.interpolate(out, size=(self.img_size, self.img_size), mode="bilinear", align_corners=True)
+        # return out
+        # 尝试lin.1
         featrues = self.encoder.forward_features(x)
         feature = featrues["x_norm_patchtokens"]
-        cls_token = featrues["x_norm_clstoken"]
-        _, _, dim = feature.shape
-        feature = feature.reshape(-1, self.img_size // self.patch_size, self.img_size // self.patch_size, dim).permute(0, 3, 1, 2)
-        cls = self.fc_cls(cls_token)
-        out = self.out_conv(feature) * cls.unsqueeze(-1).unsqueeze(-1)
-        out = torch.nn.functional.interpolate(out, size=(self.img_size, self.img_size), mode="bilinear", align_corners=True)
-        return out
+        cls_token = featrues["x_norm_clstoken"].unsqueeze(1).unsqueeze(1)
+        bs, _, dim = feature.shape
+        # feature = torch.cat([feature, cls_token], dim=1)
 
+        feature = feature.reshape(bs, self.img_size // self.patch_size, self.img_size // self.patch_size, dim)
+        feature = torch.cat([feature, cls_token.expand_as(feature)], dim=-1).permute(0, 3, 1, 2)
+        # cls = self.fc_cls(cls_token)
+        feature = torch.nn.functional.interpolate(feature, scale_factor=4, mode="bilinear", align_corners=True)
+        out = self.out_conv(feature)
+        # out = torch.nn.functional.interpolate(out, scale_factor=4, mode="bilinear", align_corners=True)
+        return out
 
 if __name__ == "__main__":
     with torch.no_grad():
@@ -242,7 +257,6 @@ if __name__ == "__main__":
               "block_chunks": 0,
               "img_size": 512,
               "init_values": 1e-5
-        
         }
         model = PromptDiNo("vit_l", "ckpts/dinov2_vitl14_pretrain.pth", 4).half().cuda()
 
