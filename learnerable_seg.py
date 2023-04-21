@@ -105,7 +105,7 @@ class PromptGen(nn.Module):
 
 class PromptSAM(nn.Module):
     def __init__(self, model_name, checkpoint, num_classes=12, reduction=4, upsample_times=2, groups=4, 
-                 prompt_input=False, prompt_type="fft", fft_type="highpass", freq_num=0.25) -> None:
+                prompt_input=False, prompt_type="fft", fft_type="highpass", freq_num=0.25) -> None:
         super(PromptSAM, self).__init__()
         #load same from the pretrained model
         self.sam = sam_model_registry[model_name](checkpoint=checkpoint)
@@ -168,21 +168,21 @@ DINO_VIT_RESITRY = {
 
 DINO_CFG = {
     "vit_l":  {
-              "patch_size": 14,
-              "drop_path_rate": 0.4,
+            "patch_size": 14,
+            "drop_path_rate": 0.4,
             #   "ffn_layer": "swiglufused",
-              "block_chunks": 0,
-              "img_size": 518,
-              "init_values": 1e-5
+            "block_chunks": 0,
+            "img_size": 518,
+            "init_values": 1e-5
         
             },
     "vit_b": {
-              "patch_size": 14,
-              "drop_path_rate": 0.4,
+            "patch_size": 14,
+            "drop_path_rate": 0.4,
             #   "ffn_layer": "swiglufused",
-              "block_chunks": 0,
-              "img_size": 518,
-              "init_values": 1e-5
+            "block_chunks": 0,
+            "img_size": 518,
+            "init_values": 1e-5
     },
     "vit_g": {
         "patch_size": 14,
@@ -252,12 +252,12 @@ if __name__ == "__main__":
         # model = PromptSAM("vit_b", "ckpts/sam_vit_b_01ec64.pth").half().cuda()
         x = torch.randn(1, 3, 518, 518).half().cuda()
         cfg = {
-              "patch_size": 14,
-              "drop_path_rate": 0.4,
+            "patch_size": 14,
+            "drop_path_rate": 0.4,
             #   "ffn_layer": "swiglufused",
-              "block_chunks": 0,
-              "img_size": 512,
-              "init_values": 1e-5
+            "block_chunks": 0,
+            "img_size": 512,
+            "init_values": 1e-5
         }
         model = PromptDiNo("vit_l", "ckpts/dinov2_vitl14_pretrain.pth", 4).half().cuda()
 

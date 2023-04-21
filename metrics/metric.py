@@ -49,7 +49,12 @@ class Metric:
 
     def reset(self):
         num_classes = 2 if self.num_classes == 1 else self.num_classes
-        self.matrix = torch.zeros((num_classes, num_classes))
+        # self.matrix = torch.zeros((num_classes, num_classes))
+        self.nValidElement = None
+        self.diffMatrix = torch.Tensor()
+        self.realMatrix = torch.Tensor()
+        self.LG10Matrix = torch.Tensor()
+        self.maxRatio = torch.Tensor()
 
     def update(self, output, target):
         # if (output.dim() == 4 or target.dim() == 2) and self.num_classes != 1:
@@ -61,19 +66,29 @@ class Metric:
         # # if self.matrix.device != matrix.device:
         # #     self.matrix = self.matrix.to(matrix.device)
         # self.matrix += matrix.detach().cpu()
-        _output, _target, nanMask, self.nValidElement = setNanToZero(output, target)
-        if (self.nValidElement.data.cpu().numpy() > 0):
-            self.diffMatrix = torch.abs(_output - _target)
+        _output, _target, nanMask, nValidElement = setNanToZero(output, target)
+        if self.nValidElement is None:
+            self.nValidElement = nValidElement
+        else:
+            self.nValidElement += nValidElement
 
-            self.realMatrix = torch.div(diffMatrix, _target)
-            self.realMatrix[nanMask] = 0
+        if (nValidElement.data.cpu().numpy() > 0):
+            diffMatrix = torch.abs(_output - _target)
 
-            self.LG10Matrix = torch.abs(lg10(_output) - lg10(_target))
-            self.LG10Matrix[nanMask] = 0
+            realMatrix = torch.div(diffMatrix, _target)
+            realMatrix[nanMask] = 0
+
+            LG10Matrix = torch.abs(lg10(_output) - lg10(_target))
+            LG10Matrix[nanMask] = 0
             yOverZ = torch.div(_output, _target)
             zOverY = torch.div(_target, _output)
 
-            self.maxRatio = maxOfTwo(yOverZ, zOverY)
+            maxRatio = maxOfTwo(yOverZ, zOverY)
+
+            self.diffMatrix = torch.concatenate((self.diffMatrix, diffMatrix), dim=0)
+            self.realMatrix = torch.concatenate((self.realMatrix, realMatrix), dim=0)
+            self.LG10Matrix = torch.concatenate((self.LG10Matrix, LG10Matrix), dim=0)
+            self.maxRatio = torch.concatenate((self.maxRatio, maxRatio), dim=0)
 
     def evaluate(self):
         result = dict()

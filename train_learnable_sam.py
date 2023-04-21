@@ -11,6 +11,9 @@ from albumentations import Compose, Resize, Normalize, ColorJitter, HorizontalFl
 import glob
 import os
 import re
+from pytorch3d.loss import chamfer_distance
+from torch.nn.utils.rnn import pad_sequence
+
 
 
 
@@ -19,7 +22,11 @@ parser.add_argument("--image", type=str, required=True,
                     help="path to the image that used to train the model")
 parser.add_argument("--mask_path", type=str, required=True,
                     help="path to the mask file for training")
-parser.add_argument("--epoch", type=int, default=64,
+parser.add_argument("--test_img", type=str, required=True, 
+                    help="path to the image that used to test the model")
+parser.add_argument("--test_mask", type=str, required=True,
+                    help="path to the mask file for testing")
+parser.add_argument("--epoch", type=int, default=32, 
                     help="training epochs")
 parser.add_argument("--checkpoint", type=str, required=True,
                     help="path to the checkpoint of sam")
@@ -57,9 +64,9 @@ from metrics.metric import Metric
 
 class SegDataset:
     def __init__(self, img_paths, mask_paths, 
-                 mask_divide=False, divide_value=255,
-                 pixel_mean=[0.5]*3, pixel_std=[0.5]*3,
-                 img_size=518) -> None:
+                mask_divide=False, divide_value=255,
+                pixel_mean=[0.5]*3, pixel_std=[0.5]*3,
+                img_size=518) -> None:
         self.img_paths = img_paths
         self.mask_paths = mask_paths
         self.length = len(img_paths)
@@ -99,9 +106,51 @@ class SegDataset:
             x = np.expand_dims(x, axis=0)
         return torch.from_numpy(x), torch.from_numpy(target)
 
+class SILogLoss(nn.Module):  # Main loss function used in AdaBins paper
+    def __init__(self):
+        super(SILogLoss, self).__init__()
+        self.name = 'SILog'
+
+    def forward(self, input, target, mask=None, interpolate=True):
+        if interpolate:
+            input = nn.functional.interpolate(input, target.shape[-2:], mode='bilinear', align_corners=True)
+
+        if mask is not None:
+            input = input[mask]
+            target = target[mask]
+        g = torch.log(input) - torch.log(target)
+        # n, c, h, w = g.shape
+        # norm = 1/(h*w)
+        # Dg = norm * torch.sum(g**2) - (0.85/(norm**2)) * (torch.sum(g))**2
+
+        Dg = torch.var(g) + 0.15 * torch.pow(torch.mean(g), 2)
+        return 10 * torch.sqrt(Dg)
+    
+class BinsChamferLoss(nn.Module):  # Bin centers regularizer used in AdaBins paper
+    def __init__(self):
+        super().__init__()
+        self.name = "ChamferLoss"
+
+    def forward(self, bins, target_depth_maps):
+        bin_centers = 0.5 * (bins[:, 1:] + bins[:, :-1])
+        n, p = bin_centers.shape
+        input_points = bin_centers.view(n, p, 1)  # .shape = n, p, 1
+        # n, c, h, w = target_depth_maps.shape
+
+        target_points = target_depth_maps.flatten(1)  # n, hwc
+        mask = target_points.ge(1e-3)  # only valid ground truth points
+        target_points = [p[m] for p, m in zip(target_points, mask)]
+        target_lengths = torch.Tensor([len(t) for t in target_points]).long().to(target_depth_maps.device)
+        target_points = pad_sequence(target_points, batch_first=True).unsqueeze(2)  # .shape = n, T, 1
+
+        loss, _ = chamfer_distance(x=input_points, y=target_points, y_lengths=target_lengths)
+        return loss
+
 def main(args):
     img_path = args.image
     mask_path = args.mask_path
+    test_img = args.test_img
+    test_mask = args.test_mask
     epochs = args.epoch
     checkpoint = args.checkpoint
     model_name = args.model_name
@@ -137,13 +186,30 @@ def main(args):
         img_paths = [img_path]
         mask_paths = [mask_path]
         num_workers = 1
+    # add test paths
+    testname = os.path.basename(test_img)
+    _, ext = os.path.splitext(testname)
+    if ext == "":
+        regex = re.compile(".*\.(jpe?g|png|gif|tif|bmp)$", re.IGNORECASE)
+        test_imgs = [file for file in glob.glob(os.path.join(test_img, "*.*")) if regex.match(file)]
+        print("train with {} imgs".format(len(test_imgs)))
+        test_masks = [os.path.join(test_mask, os.path.basename(file)) for file in test_imgs]
+        # mask_paths = [os.path.join(mask_path, 'depth'+os.path.basename(file)[6:]) for file in img_paths]
+    else:
+        bs = 1
+        test_imgs = [test_img]
+        test_masks = [test_mask]
+        num_workers = 1
     if model_type == "sam":
         model = PromptSAM(model_name, checkpoint=checkpoint, num_classes=num_classes, reduction=4, upsample_times=4, groups=8)
     elif model_type == "dino":
         model = PromptDiNo(name=model_name, checkpoint=checkpoint, num_classes=num_classes)
     dataset = SegDataset(img_paths, mask_paths=mask_paths, mask_divide=divide, divide_value=divide_value,
-                         pixel_mean=pixel_mean, pixel_std=pixel_std)
+                        pixel_mean=pixel_mean, pixel_std=pixel_std)
     dataloader = DataLoader(dataset, batch_size=bs, shuffle=True, num_workers=num_workers)
+    testset = SegDataset(test_imgs, mask_paths=test_masks, mask_divide=divide, divide_value=divide_value,
+                        pixel_mean=pixel_mean, pixel_std=pixel_std)
+    testloader = DataLoader(dataset, batch_size=bs, shuffle=True, num_workers=num_workers)
     scaler = torch.cuda.amp.grad_scaler.GradScaler()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_type = "cuda" if torch.cuda.is_available() else "cpu"
@@ -155,8 +221,9 @@ def main(args):
     loss_func = nn.CrossEntropyLoss()
     scheduler = PolyLRScheduler(optim, num_images=len(img_paths), batch_size=bs, epochs=epochs)
     metric = Metric(num_classes=num_classes)
-    best_iou = 0.
+    best_mse = 1e10
     for epoch in range(epochs):
+        metric.reset()
         for i, (x, target) in enumerate(dataloader):
             x = x.to(device)
             target = target.to(device, dtype=torch.long)
@@ -178,13 +245,32 @@ def main(args):
             metric.update(torch.softmax(pred, dim=1), target)
             print("epoch:{}-{}: loss:{}".format(epoch+1, i+1, loss.item()))
             scheduler.step()
-        iou = np.nanmean(metric.evaluate()["iou"][1:].numpy())
-        print("epoch-{}: iou:{}".format(epoch, iou.item()))
-        if iou > best_iou:
-            best_iou = iou
+        mse = metric.evaluate()["MSE"].numpy()
+        print("epoch-{}: mse:{}".format(epoch, mse.item()))
+        if mse < best_mse:
+            best_mse = mse
             torch.save(
                 model.state_dict(), os.path.join(save_path, "sam_{}_prompt.pth".format(model_name))
             )
+    #test
+    model.eval()
+    metric.reset()
+    for i, (x, target) in enumerate(testloader):
+        x = x.to(device)
+        target = target.to(device, dtype=torch.long)
+        with torch.no_grad():
+            if device_type == "cuda" and args.mix_precision:
+                x = x.to(dtype=torch.float16)
+                with torch.autocast(device_type=device_type, dtype=torch.float16):
+                    pred = model(x)
+            else:
+                x = x.to(detype=torch.float32)
+                pred = model(x)
+            np.savez(save_path, img = x.cpu().numpy(), pred = pred.cpu().numpy())
+            metric.update(torch.softmax(pred, dim=1), target)
+            metrics = metric.evaluate().numpy()
+            np.savetxt(save_path+"/prediction_metric.txt", metrics)
+
 
 if __name__ == "__main__":
     
