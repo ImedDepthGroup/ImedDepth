@@ -195,7 +195,7 @@ DINO_CFG = {
 }
 
 class PromptDiNo(nn.Module):
-    def __init__(self, name, checkpoint=None, reduction=4, num_classes=1) -> None:
+    def __init__(self, name, checkpoint=None, reduction=4, num_classes=256) -> None:
         super().__init__()
         cfg = DINO_CFG[name]
         self.encoder = DINO_VIT_RESITRY[name](**cfg)
@@ -210,7 +210,7 @@ class PromptDiNo(nn.Module):
         self.patch_size = cfg["patch_size"]
         self.img_size = cfg['img_size']
         # self.fc_cls = nn.Linear(1024, num_classes)
-        self.out_conv = nn.Conv2d(dim, num_classes, 1, 1, 0)
+        self.out_conv = nn.Conv2d(2*dim, num_classes, 1, 1, 0)
 
     
     def reset_backbone(self, chekpoint=None):
@@ -244,6 +244,7 @@ class PromptDiNo(nn.Module):
         feature = torch.nn.functional.interpolate(feature, scale_factor=4, mode="bilinear", align_corners=True)
         out = self.out_conv(feature)
         # out = torch.nn.functional.interpolate(out, scale_factor=4, mode="bilinear", align_corners=True)
+        out = torch.nn.functional.interpolate(out, size=(self.img_size, self.img_size), mode="bilinear", align_corners=True)
         return out
 
 if __name__ == "__main__":

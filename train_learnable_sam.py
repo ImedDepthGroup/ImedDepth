@@ -19,7 +19,7 @@ parser.add_argument("--image", type=str, required=True,
                     help="path to the image that used to train the model")
 parser.add_argument("--mask_path", type=str, required=True,
                     help="path to the mask file for training")
-parser.add_argument("--epoch", type=int, default=32, 
+parser.add_argument("--epoch", type=int, default=64,
                     help="training epochs")
 parser.add_argument("--checkpoint", type=str, required=True,
                     help="path to the checkpoint of sam")
@@ -28,7 +28,7 @@ parser.add_argument("--model_name", default="default", type=str,
                     choices=["default", "vit_b", "vit_l", "vit_h", 'vit_g'])
 parser.add_argument("--save_path", type=str, default="./ckpt_prompt",
                     help="save the weights of the model")
-parser.add_argument("--num_classes", type=int, default=1)
+parser.add_argument("--num_classes", type=int, default=256)
 parser.add_argument("--mix_precision", action="store_true", default=False,
                     help="whether use mix precison training")
 parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
@@ -152,8 +152,7 @@ def main(args):
         optim = opt.AdamW([{"params":model.parameters(), "initia_lr": lr}], lr=lr, weight_decay=weight_decay)
     elif optimizer == "sgd":
         optim = opt.SGD([{"params":model.parameters(), "initia_lr": lr}], lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=True)
-    # loss_func = nn.CrossEntropyLoss()
-    loss_func = nn.L1Loss()
+    loss_func = nn.CrossEntropyLoss()
     scheduler = PolyLRScheduler(optim, num_images=len(img_paths), batch_size=bs, epochs=epochs)
     metric = Metric(num_classes=num_classes)
     best_iou = 0.
@@ -167,7 +166,6 @@ def main(args):
                 with torch.autocast(device_type=device_type, dtype=torch.float16):
                     pred = model(x)
                     loss = loss_func(pred, target)
-
                 scaler.scale(loss).backward()
                 scaler.step(optim)
                 scaler.update()
