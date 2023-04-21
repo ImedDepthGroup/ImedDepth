@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as opt
 from PIL import Image
+import imageio
 import argparse
 import numpy as np
 from albumentations import Compose, Resize, Normalize, ColorJitter, HorizontalFlip, VerticalFlip
@@ -14,7 +15,7 @@ import re
 # from pytorch3d.loss import chamfer_distance
 from torch.nn.utils.rnn import pad_sequence
 
-
+imageio.plugins.freeimage.download()
 
 
 parser = argparse.ArgumentParser("Learnable prompt")
@@ -84,8 +85,9 @@ class SegDataset:
         mask_path = self.mask_paths[index]
         img = Image.open(img_path).convert("RGB")
         img = np.asarray(img)
-        mask = Image.open(mask_path).convert("L")
-        mask = np.asarray(mask)
+        # mask = Image.open(mask_path).convert("L")
+        # mask = np.asarray(mask)
+        mask = imageio.v2.imread(mask_path)
         if self.mask_divide:
             mask = mask // self.divide_value
         transform = Compose(
@@ -179,7 +181,7 @@ def main(args):
         regex = re.compile(".*\.(jpe?g|png|gif|tif|bmp)$", re.IGNORECASE)
         img_paths = [file for file in glob.glob(os.path.join(img_path, "*.*")) if regex.match(file)]
         print("train with {} imgs".format(len(img_paths)))
-        mask_paths = [os.path.join(mask_path, os.path.basename(file)) for file in img_paths]
+        mask_paths = [os.path.join(mask_path, os.path.splitext(os.path.basename(file))[0] + '.exr') for file in img_paths]
         # mask_paths = [os.path.join(mask_path, 'depth'+os.path.basename(file)[6:]) for file in img_paths]
     else:
         bs = 1
@@ -190,10 +192,10 @@ def main(args):
     testname = os.path.basename(test_img)
     _, ext = os.path.splitext(testname)
     if ext == "":
-        regex = re.compile(".*\.(jpe?g|png|gif|tif|bmp)$", re.IGNORECASE)
+        regex = re.compile(".*\.(jpe?g|png|gif|tif|bmp|exr)$", re.IGNORECASE)
         test_imgs = [file for file in glob.glob(os.path.join(test_img, "*.*")) if regex.match(file)]
         print("test with {} imgs".format(len(test_imgs)))
-        test_masks = [os.path.join(test_mask, os.path.basename(file)) for file in test_imgs]
+        test_masks = [os.path.join(test_mask, os.path.splitext(os.path.basename(file))[0] + '.exr') for file in test_imgs]
         # mask_paths = [os.path.join(mask_path, 'depth'+os.path.basename(file)[6:]) for file in img_paths]
     else:
         bs = 1
@@ -269,9 +271,8 @@ def main(args):
                 pred = model(x)
             np.savez(save_path, img = x.cpu().numpy(), pred = pred.cpu().numpy())
             metric.update(torch.argmax(torch.softmax(pred, dim=1),dim=1), target)
-            # metrics = metric.evaluate().numpy()
-            metrics = np.array(metric.evaluate())
-            np.savetxt(save_path+"/prediction_metric.txt", metrics)
+    metrics = metric.evaluate()
+    np.savez(save_path+"/prediction_metric.npz", **metrics)
 
 
 if __name__ == "__main__":

@@ -196,7 +196,7 @@ DINO_CFG = {
 }
 
 class PromptDiNo(nn.Module):
-    def __init__(self, name, checkpoint=None, reduction=4, num_classes=256) -> None:
+    def __init__(self, name, checkpoint=None, reduction=4, num_classes=16) -> None:
         super().__init__()
         cfg = DINO_CFG[name]
         self.encoder = DINO_VIT_RESITRY[name](**cfg)
