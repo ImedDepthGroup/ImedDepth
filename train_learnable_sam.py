@@ -11,7 +11,7 @@ from albumentations import Compose, Resize, Normalize, ColorJitter, HorizontalFl
 import glob
 import os
 import re
-from pytorch3d.loss import chamfer_distance
+# from pytorch3d.loss import chamfer_distance
 from torch.nn.utils.rnn import pad_sequence
 
 
@@ -22,11 +22,11 @@ parser.add_argument("--image", type=str, required=True,
                     help="path to the image that used to train the model")
 parser.add_argument("--mask_path", type=str, required=True,
                     help="path to the mask file for training")
-parser.add_argument("--test_img", type=str, required=True, 
+parser.add_argument("--test_img", type=str, required=True,
                     help="path to the image that used to test the model")
 parser.add_argument("--test_mask", type=str, required=True,
                     help="path to the mask file for testing")
-parser.add_argument("--epoch", type=int, default=32, 
+parser.add_argument("--epoch", type=int, default=1,
                     help="training epochs")
 parser.add_argument("--checkpoint", type=str, required=True,
                     help="path to the checkpoint of sam")
@@ -125,7 +125,7 @@ class SILogLoss(nn.Module):  # Main loss function used in AdaBins paper
 
         Dg = torch.var(g) + 0.15 * torch.pow(torch.mean(g), 2)
         return 10 * torch.sqrt(Dg)
-    
+
 class BinsChamferLoss(nn.Module):  # Bin centers regularizer used in AdaBins paper
     def __init__(self):
         super().__init__()
@@ -192,7 +192,7 @@ def main(args):
     if ext == "":
         regex = re.compile(".*\.(jpe?g|png|gif|tif|bmp)$", re.IGNORECASE)
         test_imgs = [file for file in glob.glob(os.path.join(test_img, "*.*")) if regex.match(file)]
-        print("train with {} imgs".format(len(test_imgs)))
+        print("test with {} imgs".format(len(test_imgs)))
         test_masks = [os.path.join(test_mask, os.path.basename(file)) for file in test_imgs]
         # mask_paths = [os.path.join(mask_path, 'depth'+os.path.basename(file)[6:]) for file in img_paths]
     else:
@@ -209,7 +209,7 @@ def main(args):
     dataloader = DataLoader(dataset, batch_size=bs, shuffle=True, num_workers=num_workers)
     testset = SegDataset(test_imgs, mask_paths=test_masks, mask_divide=divide, divide_value=divide_value,
                         pixel_mean=pixel_mean, pixel_std=pixel_std)
-    testloader = DataLoader(dataset, batch_size=bs, shuffle=True, num_workers=num_workers)
+    testloader = DataLoader(testset, batch_size=bs, shuffle=True, num_workers=num_workers)
     scaler = torch.cuda.amp.grad_scaler.GradScaler()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_type = "cuda" if torch.cuda.is_available() else "cpu"
@@ -242,15 +242,16 @@ def main(args):
                 loss = loss_func(pred, target)
                 loss.backward()
                 optim.step()
-            metric.update(torch.softmax(pred, dim=1), target)
+            metric.update(torch.argmax(torch.softmax(pred, dim=1),dim=1).to(device), target)
             print("epoch:{}-{}: loss:{}".format(epoch+1, i+1, loss.item()))
             scheduler.step()
-        mse = metric.evaluate()["MSE"].numpy()
+        # mse = metric.evaluate()["MSE"].numpy()
+        mse = np.array(metric.evaluate()["MSE"])
         print("epoch-{}: mse:{}".format(epoch, mse.item()))
         if mse < best_mse:
             best_mse = mse
             torch.save(
-                model.state_dict(), os.path.join(save_path, "sam_{}_prompt.pth".format(model_name))
+                model.state_dict(), os.path.join(save_path, "dino_{}_prompt.pth".format(model_name))
             )
     #test
     model.eval()
@@ -267,8 +268,9 @@ def main(args):
                 x = x.to(detype=torch.float32)
                 pred = model(x)
             np.savez(save_path, img = x.cpu().numpy(), pred = pred.cpu().numpy())
-            metric.update(torch.softmax(pred, dim=1), target)
-            metrics = metric.evaluate().numpy()
+            metric.update(torch.argmax(torch.softmax(pred, dim=1),dim=1), target)
+            # metrics = metric.evaluate().numpy()
+            metrics = np.array(metric.evaluate())
             np.savetxt(save_path+"/prediction_metric.txt", metrics)
 
 

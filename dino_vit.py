@@ -354,4 +354,4 @@ def vit_giant2(patch_size=16, **kwargs):
         block_fn=partial(Block, attn_class=MemEffAttention),
         **kwargs,
     )
-    return 
+    return model

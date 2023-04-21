@@ -185,13 +185,14 @@ DINO_CFG = {
             "init_values": 1e-5
     },
     "vit_g": {
-        "patch_size": 14,
-        "drop_path_rate": 0.4,
-        #   "ffn_layer": "swiglufused",
-        "block_chunks": 0,
-        "img_size": 518,
-        "init_values": 1e-5
-    }
+              "patch_size": 14,
+              "drop_path_rate": 0.4,
+              "ffn_layer": "swiglufused",
+              "block_chunks": 0,
+              "img_size": 518,
+              "init_values": 1e-5
+    },
+
 }
 
 class PromptDiNo(nn.Module):
@@ -259,7 +260,7 @@ if __name__ == "__main__":
             "img_size": 512,
             "init_values": 1e-5
         }
-        model = PromptDiNo("vit_l", "ckpts/dinov2_vitl14_pretrain.pth", 4).half().cuda()
+        model = PromptDiNo("vit_g", "ckpts/dinov2_vitg14_pretrain.pth", 4).half().cuda()
 
         out = model(x)
         print(out.shape)

@@ -85,10 +85,10 @@ class Metric:
 
             maxRatio = maxOfTwo(yOverZ, zOverY)
 
-            self.diffMatrix = torch.concatenate((self.diffMatrix, diffMatrix), dim=0)
-            self.realMatrix = torch.concatenate((self.realMatrix, realMatrix), dim=0)
-            self.LG10Matrix = torch.concatenate((self.LG10Matrix, LG10Matrix), dim=0)
-            self.maxRatio = torch.concatenate((self.maxRatio, maxRatio), dim=0)
+            self.diffMatrix = torch.concatenate((self.diffMatrix, diffMatrix.cpu()), dim=0)
+            self.realMatrix = torch.concatenate((self.realMatrix, realMatrix.cpu()), dim=0)
+            self.LG10Matrix = torch.concatenate((self.LG10Matrix, LG10Matrix.cpu()), dim=0)
+            self.maxRatio = torch.concatenate((self.maxRatio, maxRatio.cpu()), dim=0)
 
     def evaluate(self):
         result = dict()
